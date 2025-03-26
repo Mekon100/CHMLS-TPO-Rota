@@ -23,19 +23,18 @@ def generate_dates(year, month):
         if (start_date + datetime.timedelta(days=i)).weekday() < 5
     ]
 
-# --- Fallback Function for Front Desk Shifts ---
-def fallback_front_desk(date):
+def fallback_dedicated(role, date, weekday):
     """
-    Fallback for front desk shifts:
-    Only use staff with role "Other" (fallback coverage).
-    If multiple candidates have the same lowest shift count, one is chosen at random.
-    Returns a tuple (name, staff_obj) or (None, None) if no candidate is available.
+    Fallback for front desk shifts using dedicated staff even if they are already assigned.
+    Returns a tuple (name, staff_obj) chosen fairly (lowest shift_count).
+    If none available, returns (None, None).
     """
-    available = [s for s in st.session_state.staff if s["role"] == "Other" and date not in s["holidays"]]
-    if available:
-        min_count = min(s["shift_count"] for s in available)
-        tied_candidates = [s for s in available if s["shift_count"] == min_count]
-        selected = random.choice(tied_candidates)
+    candidates = [s for s in st.session_state.staff 
+                  if s["role"] == role 
+                  and weekday in s["office_days"]
+                  and date not in s["holidays"]]
+    if candidates:
+        selected = min(candidates, key=lambda s: s["shift_count"])
         return selected["name"], selected
     return None, None
 
@@ -44,7 +43,7 @@ def generate_rota(dates):
     rows = []
     for date in dates:
         row = {"Date": date.strftime("%d/%m/%Y"), "Day": date.strftime("%A")}
-        # If the date is a University closure, mark every cell as "CLOSED"
+        # If the date is a University closure day, mark all tasks as "CLOSED"
         if date in st.session_state.closure_days:
             for col in ["HS_Front_AM", "HS_Front_PM", "LS_Front_AM", "LS_Front_PM",
                         "LibChat_AM", "LibChat_PM", "Phones_AM1", "Phones_AM2", "Phones_PM1", "Phones_PM2"]:
@@ -56,44 +55,42 @@ def generate_rota(dates):
         is_friday = (weekday == 4)
         
         # --- Health Sciences Front Desk Assignment ---
-        # AM shift:
-        available_hs_am = [
-            s for s in st.session_state.staff 
-            if s["role"] == "Health Sciences Front Desk" 
-            and weekday in s["office_days"]
-            and date not in s["holidays"]
-            and date not in s.get("front_assigned_dates", set())
-        ]
+        # Try normal assignment (avoid double assignment if possible)
+        available_hs_am = [s for s in st.session_state.staff 
+                           if s["role"] == "Health Sciences Front Desk"
+                           and weekday in s["office_days"]
+                           and date not in s["holidays"]
+                           and date not in s.get("front_assigned_dates", set())]
         if available_hs_am:
             selected = min(available_hs_am, key=lambda s: s["shift_count"])
             row["HS_Front_AM"] = selected["name"]
             selected.setdefault("front_assigned_dates", set()).add(date)
             selected["shift_count"] += 1
         else:
-            name_fb, selected_fb = fallback_front_desk(date)
+            # Fallback: allow dedicated staff (even if already assigned)
+            name_fb, selected_fb = fallback_dedicated("Health Sciences Front Desk", date, weekday)
             if name_fb:
                 row["HS_Front_AM"] = name_fb + " (Fallback)"
                 selected_fb["shift_count"] += 1
             else:
                 row["HS_Front_AM"] = "UNASSIGNED"
-        # PM shift:
+                
+        # For PM shift:
         if is_friday:
             row["HS_Front_PM"] = "CLOSED"
         else:
-            available_hs_pm = [
-                s for s in st.session_state.staff 
-                if s["role"] == "Health Sciences Front Desk" 
-                and weekday in s["office_days"]
-                and date not in s["holidays"]
-                and date not in s.get("front_assigned_dates", set())
-            ]
+            available_hs_pm = [s for s in st.session_state.staff 
+                               if s["role"] == "Health Sciences Front Desk"
+                               and weekday in s["office_days"]
+                               and date not in s["holidays"]
+                               and date not in s.get("front_assigned_dates", set())]
             if available_hs_pm:
                 selected = min(available_hs_pm, key=lambda s: s["shift_count"])
                 row["HS_Front_PM"] = selected["name"]
                 selected.setdefault("front_assigned_dates", set()).add(date)
                 selected["shift_count"] += 1
             else:
-                name_fb, selected_fb = fallback_front_desk(date)
+                name_fb, selected_fb = fallback_dedicated("Health Sciences Front Desk", date, weekday)
                 if name_fb:
                     row["HS_Front_PM"] = name_fb + " (Fallback)"
                     selected_fb["shift_count"] += 1
@@ -101,44 +98,39 @@ def generate_rota(dates):
                     row["HS_Front_PM"] = "UNASSIGNED"
         
         # --- Life Sciences Front Desk Assignment ---
-        # AM shift:
-        available_ls_am = [
-            s for s in st.session_state.staff 
-            if s["role"] == "Life Sciences Front Desk" 
-            and weekday in s["office_days"]
-            and date not in s["holidays"]
-            and date not in s.get("front_assigned_dates", set())
-        ]
+        available_ls_am = [s for s in st.session_state.staff 
+                           if s["role"] == "Life Sciences Front Desk"
+                           and weekday in s["office_days"]
+                           and date not in s["holidays"]
+                           and date not in s.get("front_assigned_dates", set())]
         if available_ls_am:
             selected = min(available_ls_am, key=lambda s: s["shift_count"])
             row["LS_Front_AM"] = selected["name"]
             selected.setdefault("front_assigned_dates", set()).add(date)
             selected["shift_count"] += 1
         else:
-            name_fb, selected_fb = fallback_front_desk(date)
+            name_fb, selected_fb = fallback_dedicated("Life Sciences Front Desk", date, weekday)
             if name_fb:
                 row["LS_Front_AM"] = name_fb + " (Fallback)"
                 selected_fb["shift_count"] += 1
             else:
                 row["LS_Front_AM"] = "UNASSIGNED"
-        # PM shift:
+                
         if is_friday:
             row["LS_Front_PM"] = "CLOSED"
         else:
-            available_ls_pm = [
-                s for s in st.session_state.staff 
-                if s["role"] == "Life Sciences Front Desk" 
-                and weekday in s["office_days"]
-                and date not in s["holidays"]
-                and date not in s.get("front_assigned_dates", set())
-            ]
+            available_ls_pm = [s for s in st.session_state.staff 
+                               if s["role"] == "Life Sciences Front Desk"
+                               and weekday in s["office_days"]
+                               and date not in s["holidays"]
+                               and date not in s.get("front_assigned_dates", set())]
             if available_ls_pm:
                 selected = min(available_ls_pm, key=lambda s: s["shift_count"])
                 row["LS_Front_PM"] = selected["name"]
                 selected.setdefault("front_assigned_dates", set()).add(date)
                 selected["shift_count"] += 1
             else:
-                name_fb, selected_fb = fallback_front_desk(date)
+                name_fb, selected_fb = fallback_dedicated("Life Sciences Front Desk", date, weekday)
                 if name_fb:
                     row["LS_Front_PM"] = name_fb + " (Fallback)"
                     selected_fb["shift_count"] += 1
@@ -192,7 +184,7 @@ def generate_rota(dates):
 
 # --- Streamlit App Layout ---
 
-st.title("CHMLS TPO Rota Generator")
+st.title("Monthly Front Desk Rota Generator – Extended")
 
 # Initialize session state if not already set.
 if "staff" not in st.session_state:
@@ -266,11 +258,10 @@ if st.button("Generate Rota"):
             staff_formats[name] = workbook.add_format({"bg_color": color})
         
         # Define additional formats.
-        warning_format = workbook.add_format({"bg_color": "#FFC7CE"})  # Light red for UNASSIGNED.
-        closed_format = workbook.add_format({"bg_color": "#D9D9D9"})   # Light gray for CLOSED.
+        warning_format = workbook.add_format({"bg_color": "#FFC7CE"})  # Red for UNASSIGNED.
+        closed_format = workbook.add_format({"bg_color": "#D9D9D9"})   # Gray for CLOSED.
         
-        # Iterate through the data and apply color formatting.
-        # Data starts at row 1 (headers in row 0).
+        # Apply formatting to cells.
         for i in range(1, len(rota_df) + 1):
             for j, col in enumerate(rota_df.columns):
                 cell_value = str(rota_df.iloc[i-1, j])
@@ -280,7 +271,6 @@ if st.button("Generate Rota"):
                 elif cell_value == "CLOSED":
                     fmt = closed_format
                 else:
-                    # Check if a staff name is present.
                     for name, staff_fmt in staff_formats.items():
                         if name in cell_value:
                             fmt = staff_fmt
@@ -294,10 +284,9 @@ if st.button("Generate Rota"):
         legend_row = len(rota_df) + 3
         worksheet.write(legend_row, 0, "Legend:")
         row = legend_row + 1
-        for name, staff_fmt in staff_formats.items():
-            worksheet.write(row, 0, name, staff_fmt)
+        for name, fmt in staff_formats.items():
+            worksheet.write(row, 0, name, fmt)
             row += 1
-        # Also add entries for UNASSIGNED and CLOSED.
         worksheet.write(row, 0, "UNASSIGNED", warning_format)
         row += 1
         worksheet.write(row, 0, "CLOSED", closed_format)
@@ -309,4 +298,5 @@ if st.button("Generate Rota"):
     summary_df = pd.DataFrame(summary)
     st.subheader("Shift Summary")
     st.dataframe(summary_df)
+
 
