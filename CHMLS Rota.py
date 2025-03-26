@@ -192,7 +192,7 @@ def generate_rota(dates):
 
 # --- Streamlit App Layout ---
 
-st.title("Monthly Front Desk Rota Generator – Extended")
+st.title("CHMLS TPO Rota Generator")
 
 # Initialize session state if not already set.
 if "staff" not in st.session_state:
